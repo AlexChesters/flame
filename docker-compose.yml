@@ -1,0 +1,10 @@
+version: "3.3"
+services:
+  flame:
+    image: pawelmalak/flame:multiarch
+    ports:
+        - "5005:5005"
+    volumes:
+        - ./data:/app/data
+    env_file:
+      - stack.env
