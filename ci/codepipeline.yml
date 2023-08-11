@@ -1,0 +1,47 @@
+Description: pipeline to deploy flame backups
+Resources:
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !ImportValue ci-infrastructure-build-artifacts-bucket-name
+      Name: flame-backups
+      RestartExecutionOnUpdate: true
+      RoleArn: !ImportValue ci-infrastructure-codepipeline-base-execution-role
+      Stages:
+        - Name: Source
+          Actions:
+            - ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: "1"
+                Provider: CodeStarSourceConnection
+              OutputArtifacts:
+                - Name: GitHubSource
+              RunOrder: 1
+              Name: Clone-From-GitHub
+              Namespace: SourceVariables
+              Configuration:
+                ConnectionArn: !ImportValue ci-infrastructure-codestar-connection
+                FullRepositoryId: AlexChesters/flame
+                BranchName: main
+                OutputArtifactFormat: CODE_ZIP
+        - Name: Deploy-Stacks
+          Actions:
+            - ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: "1"
+                Provider: CloudFormation
+              InputArtifacts:
+                - Name: GitHubSource
+              RunOrder: 1
+              Name: Main
+              Configuration:
+                ActionMode: REPLACE_ON_FAILURE
+                Capabilities: CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                StackName: flame-backups-main
+                RoleArn: !ImportValue ci-infrastructure-codepipeline-base-cloudformation-role
+                TemplatePath: GitHubSource::stacks/backups-account/main.yml
+                TemplateConfiguration: GitHubSource::stacks/backups-account/parameters/main.json

@@ -1,0 +1,79 @@
+Transform: AWS::LanguageExtensions
+Description: Infrastructure for flame
+Parameters:
+  MetricNamespace:
+    Type: String
+    Description: Namespace for custom CloudWatch metrics
+    Default: flame-backups
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: flame-backups-bucket
+      LifecycleConfiguration:
+        Rules:
+          - Id: delete-after-one-year
+            Status: Enabled
+            ExpirationInDays: 365
+          - Id: delete-incomplete-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 3
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  User:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: flame-backups-uploader
+      Policies:
+        - PolicyName: flame-backups
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Sub "${Bucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource:
+                  - "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: !Ref MetricNamespace
+  AccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      Serial: 1 # increment this value to force the access key to be recycled
+      Status: Active
+      UserName: !Ref User
+  CredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Properties:
+      Name: flame-backups-iam-credentials
+      SecretString:
+        Fn::ToJsonString:
+          AccessKeyId: !Ref AccessKey
+          SecretAccessKey: !GetAtt AccessKey.SecretAccessKey
+  MissingBackupAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      MetricName: BackupCompleted
+      Namespace: !Ref MetricNamespace
+      ComparisonOperator: LessThanThreshold
+      EvaluationPeriods: 1
+      Period: 86400 # 24 hours
+      TreatMissingData: breaching
+      Statistic: Sum
+      Threshold: 1
+      ActionsEnabled: true
+      AlarmActions:
+        - !ImportValue notification-topic
+      OKActions:
+        - !ImportValue notification-topic
